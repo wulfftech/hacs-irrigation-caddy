@@ -1,4 +1,4 @@
-"""Switch entities for Irrigation Caddy — zones and programs."""
+"""Switch entities for Irrigation Caddy."""
 from __future__ import annotations
 
 import logging
@@ -7,7 +7,6 @@ from typing import Any
 from homeassistant.components.switch import SwitchDeviceClass, SwitchEntity
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
-from homeassistant.helpers.entity import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
@@ -19,6 +18,7 @@ from .const import (
     MAX_ZONES,
 )
 from .coordinator import IrrigationCaddyCoordinator
+from .device_info import programs_device_info, system_device_info, zones_device_info
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -31,24 +31,15 @@ async def async_setup_entry(
     coordinator: IrrigationCaddyCoordinator = hass.data[DOMAIN][entry.entry_id]
 
     entities: list[SwitchEntity] = [IrrigationCaddySystemSwitch(coordinator, entry)]
+
     for zone in range(1, MAX_ZONES + 1):
         entities.append(IrrigationCaddyZoneSwitch(coordinator, entry, zone))
+
     for program in range(1, MAX_PROGRAMS + 1):
-        entities.append(IrrigationCaddyProgramSwitch(coordinator, entry, program))
+        entities.append(IrrigationCaddyProgramRunSwitch(coordinator, entry, program))
+        entities.append(IrrigationCaddyProgramEnableSwitch(coordinator, entry, program))
 
     async_add_entities(entities)
-
-
-def _device_info(coordinator: IrrigationCaddyCoordinator, entry: ConfigEntry) -> DeviceInfo:
-    fw = coordinator.data.firmware_version if coordinator.data else ""
-    return DeviceInfo(
-        identifiers={(DOMAIN, entry.entry_id)},
-        name=entry.title,
-        manufacturer="KGControls",
-        model="Irrigation Caddy S1",
-        sw_version=fw or None,
-        configuration_url=f"http://{coordinator.host}:{coordinator.port}",
-    )
 
 
 class IrrigationCaddySystemSwitch(CoordinatorEntity[IrrigationCaddyCoordinator], SwitchEntity):
@@ -63,7 +54,11 @@ class IrrigationCaddySystemSwitch(CoordinatorEntity[IrrigationCaddyCoordinator],
         super().__init__(coordinator)
         self._entry = entry
         self._attr_unique_id = f"{entry.entry_id}_system"
-        self._attr_device_info = _device_info(coordinator, entry)
+
+    @property
+    def device_info(self):
+        fw = self.coordinator.data.firmware_version if self.coordinator.data else ""
+        return system_device_info(self.coordinator.host, self.coordinator.port, self._entry, fw)
 
     @property
     def is_on(self) -> bool:
@@ -79,7 +74,7 @@ class IrrigationCaddySystemSwitch(CoordinatorEntity[IrrigationCaddyCoordinator],
 
 
 class IrrigationCaddyZoneSwitch(CoordinatorEntity[IrrigationCaddyCoordinator], SwitchEntity):
-    """A switch that represents a single irrigation zone."""
+    """Manual run switch for a single irrigation zone."""
 
     _attr_device_class = SwitchDeviceClass.SWITCH
     _attr_has_entity_name = True
@@ -89,7 +84,7 @@ class IrrigationCaddyZoneSwitch(CoordinatorEntity[IrrigationCaddyCoordinator], S
         self._zone = zone
         self._entry = entry
         self._attr_unique_id = f"{entry.entry_id}_zone_{zone}"
-        self._attr_device_info = _device_info(coordinator, entry)
+        self._attr_device_info = zones_device_info(entry)
 
     @property
     def name(self) -> str:
@@ -126,8 +121,8 @@ class IrrigationCaddyZoneSwitch(CoordinatorEntity[IrrigationCaddyCoordinator], S
         await self.coordinator.async_stop_zone()
 
 
-class IrrigationCaddyProgramSwitch(CoordinatorEntity[IrrigationCaddyCoordinator], SwitchEntity):
-    """A switch that represents an irrigation program."""
+class IrrigationCaddyProgramRunSwitch(CoordinatorEntity[IrrigationCaddyCoordinator], SwitchEntity):
+    """Run-now switch for a saved program — on = run immediately, off = stop all."""
 
     _attr_device_class = SwitchDeviceClass.SWITCH
     _attr_has_entity_name = True
@@ -136,10 +131,10 @@ class IrrigationCaddyProgramSwitch(CoordinatorEntity[IrrigationCaddyCoordinator]
         super().__init__(coordinator)
         self._program = program
         self._entry = entry
-        self._attr_unique_id = f"{entry.entry_id}_program_{program}"
-        self._attr_name = f"Program {program}"
-        self._attr_icon = "mdi:timer-play-outline"
-        self._attr_device_info = _device_info(coordinator, entry)
+        self._attr_unique_id = f"{entry.entry_id}_program_{program}_run"
+        self._attr_name = f"Program {program} Run"
+        self._attr_icon = "mdi:play-circle-outline"
+        self._attr_device_info = programs_device_info(entry)
 
     @property
     def is_on(self) -> bool:
@@ -153,12 +148,16 @@ class IrrigationCaddyProgramSwitch(CoordinatorEntity[IrrigationCaddyCoordinator]
         if self.coordinator.data and self.is_on:
             attrs["remaining_seconds"] = self.coordinator.data.prog_sec_left
         if self.coordinator.data and self.coordinator.data.programs:
-            programs = self.coordinator.data.programs
-            if self._program <= len(programs):
-                prog = programs[self._program - 1]
-                attrs["allow_run"] = prog.get("allowRun", True)
+            progs = self.coordinator.data.programs
+            if self._program <= len(progs):
+                prog = progs[self._program - 1]
                 days = prog.get("daysToRun", {})
                 attrs["days_to_run"] = [d for d, v in days.items() if v]
+                total_min = sum(
+                    z.get("hr", 0) * 60 + z.get("min", 0)
+                    for z in prog.get("zoneDuration", [])[:MAX_ZONES]
+                )
+                attrs["total_run_minutes"] = total_min
         return attrs
 
     async def async_turn_on(self, **kwargs: Any) -> None:
@@ -166,3 +165,37 @@ class IrrigationCaddyProgramSwitch(CoordinatorEntity[IrrigationCaddyCoordinator]
 
     async def async_turn_off(self, **kwargs: Any) -> None:
         await self.coordinator.async_stop_all()
+
+
+class IrrigationCaddyProgramEnableSwitch(CoordinatorEntity[IrrigationCaddyCoordinator], SwitchEntity):
+    """Enable/disable a saved program (allowRun per program).
+
+    When off, the program won't run on its scheduled days even if the system is on.
+    """
+
+    _attr_device_class = SwitchDeviceClass.SWITCH
+    _attr_has_entity_name = True
+
+    def __init__(self, coordinator: IrrigationCaddyCoordinator, entry: ConfigEntry, program: int) -> None:
+        super().__init__(coordinator)
+        self._program = program
+        self._entry = entry
+        self._attr_unique_id = f"{entry.entry_id}_program_{program}_enable"
+        self._attr_name = f"Program {program} Enabled"
+        self._attr_icon = "mdi:calendar-check-outline"
+        self._attr_device_info = programs_device_info(entry)
+
+    @property
+    def is_on(self) -> bool:
+        if not self.coordinator.data or not self.coordinator.data.programs:
+            return True
+        progs = self.coordinator.data.programs
+        if self._program <= len(progs):
+            return bool(progs[self._program - 1].get("allowRun", True))
+        return True
+
+    async def async_turn_on(self, **kwargs: Any) -> None:
+        await self.coordinator.async_set_program_enabled(self._program, True)
+
+    async def async_turn_off(self, **kwargs: Any) -> None:
+        await self.coordinator.async_set_program_enabled(self._program, False)

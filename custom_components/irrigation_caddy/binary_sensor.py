@@ -12,7 +12,7 @@ from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from .const import DOMAIN
 from .coordinator import IrrigationCaddyCoordinator
-from .switch import _device_info
+from .device_info import system_device_info
 
 
 async def async_setup_entry(
@@ -24,8 +24,14 @@ async def async_setup_entry(
     async_add_entities([
         IrrigationCaddyWateringBinarySensor(coordinator, entry),
         IrrigationCaddyEnabledBinarySensor(coordinator, entry),
-        IrrigationCaddyRainSensor(coordinator, entry),
+        IrrigationCaddyRainSensorActive(coordinator, entry),
+        IrrigationCaddyRainSensorEnabled(coordinator, entry),
     ])
+
+
+def _sys_device(coordinator: IrrigationCaddyCoordinator, entry: ConfigEntry):
+    fw = coordinator.data.firmware_version if coordinator.data else ""
+    return system_device_info(coordinator.host, coordinator.port, entry, fw)
 
 
 class IrrigationCaddyWateringBinarySensor(CoordinatorEntity[IrrigationCaddyCoordinator], BinarySensorEntity):
@@ -39,26 +45,32 @@ class IrrigationCaddyWateringBinarySensor(CoordinatorEntity[IrrigationCaddyCoord
     def __init__(self, coordinator: IrrigationCaddyCoordinator, entry: ConfigEntry) -> None:
         super().__init__(coordinator)
         self._attr_unique_id = f"{entry.entry_id}_watering"
-        self._attr_device_info = _device_info(coordinator, entry)
+        self._entry = entry
+
+    @property
+    def device_info(self):
+        return _sys_device(self.coordinator, self._entry)
 
     @property
     def is_on(self) -> bool:
-        if not self.coordinator.data:
-            return False
-        return self.coordinator.data.running
+        return bool(self.coordinator.data and self.coordinator.data.running)
 
 
 class IrrigationCaddyEnabledBinarySensor(CoordinatorEntity[IrrigationCaddyCoordinator], BinarySensorEntity):
-    """True when the controller has programs globally enabled (allowRun)."""
+    """True when the controller is globally enabled (allowRun / System ON)."""
 
     _attr_has_entity_name = True
-    _attr_name = "Enabled"
+    _attr_name = "System Enabled"
     _attr_icon = "mdi:toggle-switch"
 
     def __init__(self, coordinator: IrrigationCaddyCoordinator, entry: ConfigEntry) -> None:
         super().__init__(coordinator)
         self._attr_unique_id = f"{entry.entry_id}_enabled"
-        self._attr_device_info = _device_info(coordinator, entry)
+        self._entry = entry
+
+    @property
+    def device_info(self):
+        return _sys_device(self.coordinator, self._entry)
 
     @property
     def is_on(self) -> bool:
@@ -67,24 +79,27 @@ class IrrigationCaddyEnabledBinarySensor(CoordinatorEntity[IrrigationCaddyCoordi
         return self.coordinator.data.allow_run
 
 
-class IrrigationCaddyRainSensor(CoordinatorEntity[IrrigationCaddyCoordinator], BinarySensorEntity):
-    """True when the rain sensor has triggered (isRaining), which inhibits watering."""
+class IrrigationCaddyRainSensorActive(CoordinatorEntity[IrrigationCaddyCoordinator], BinarySensorEntity):
+    """True when the rain sensor is detecting moisture (isRaining AND sensor is enabled)."""
 
     _attr_has_entity_name = True
-    _attr_name = "Rain Sensor"
+    _attr_name = "Rain Sensor Wet"
     _attr_device_class = BinarySensorDeviceClass.MOISTURE
     _attr_icon = "mdi:weather-rainy"
 
     def __init__(self, coordinator: IrrigationCaddyCoordinator, entry: ConfigEntry) -> None:
         super().__init__(coordinator)
         self._attr_unique_id = f"{entry.entry_id}_is_raining"
-        self._attr_device_info = _device_info(coordinator, entry)
+        self._entry = entry
+
+    @property
+    def device_info(self):
+        return _sys_device(self.coordinator, self._entry)
 
     @property
     def is_on(self) -> bool:
         if not self.coordinator.data:
             return False
-        # Only meaningful when rain sensor is enabled (useSensor1)
         return self.coordinator.data.is_raining and self.coordinator.data.use_sensor1
 
     @property
@@ -95,3 +110,26 @@ class IrrigationCaddyRainSensor(CoordinatorEntity[IrrigationCaddyCoordinator], B
             "sensor_enabled": self.coordinator.data.use_sensor1,
             "raw_state": self.coordinator.data.is_raining,
         }
+
+
+class IrrigationCaddyRainSensorEnabled(CoordinatorEntity[IrrigationCaddyCoordinator], BinarySensorEntity):
+    """True when the rain sensor input is enabled in settings (useSensor1)."""
+
+    _attr_has_entity_name = True
+    _attr_name = "Rain Sensor Enabled"
+    _attr_icon = "mdi:leak"
+
+    def __init__(self, coordinator: IrrigationCaddyCoordinator, entry: ConfigEntry) -> None:
+        super().__init__(coordinator)
+        self._attr_unique_id = f"{entry.entry_id}_use_sensor1"
+        self._entry = entry
+
+    @property
+    def device_info(self):
+        return _sys_device(self.coordinator, self._entry)
+
+    @property
+    def is_on(self) -> bool:
+        if not self.coordinator.data:
+            return False
+        return self.coordinator.data.use_sensor1

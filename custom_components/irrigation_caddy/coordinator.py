@@ -23,7 +23,6 @@ from .const import (
     ENDPOINT_SAVE_PROGRAM,
     ENDPOINT_RUN_SPRINKLERS,
     ENDPOINT_STOP_SPRINKLERS,
-    MAX_PROGRAMS,
     MAX_ZONES,
 )
 
@@ -199,6 +198,44 @@ class IrrigationCaddyCoordinator(DataUpdateCoordinator[IrrigationCaddyData]):
         Uses stop=off per the firmware JS: stopSprinklers.htm?stop=off
         """
         await self._post(ENDPOINT_STOP_SPRINKLERS, {"stop": "off"})
+        await self.async_request_refresh()
+
+    async def async_set_program_enabled(self, program: int, enabled: bool) -> None:
+        """Enable or disable a saved program by toggling its allowRun flag.
+
+        Reads the current program data then re-submits it with allowRun changed,
+        matching the save flow used by the web UI (POST /program.htm).
+        """
+        if not self.data or not self.data.programs:
+            return
+        progs = self.data.programs
+        if program > len(progs):
+            return
+        prog = progs[program - 1]
+
+        payload: dict[str, str] = {
+            "pgmNum": str(program),
+            "progAllowRun": "1" if enabled else "0",
+        }
+
+        # Re-submit existing schedule fields so the firmware keeps them intact
+        days = prog.get("daysToRun", {})
+        for day, val in days.items():
+            payload[f"day_{day[:3].capitalize()}"] = "1" if val else "0"
+
+        start_times = prog.get("startTimes", [])
+        for i, st in enumerate(start_times[:5]):
+            payload[f"stHr{i}"] = str(st.get("hr", 0))
+            payload[f"stMin{i}"] = str(st.get("min", 0))
+            payload[f"stStat{i+1}"] = "1" if st.get("isOn", False) else "0"
+
+        zone_durations = prog.get("zoneDuration", [])
+        for z in range(MAX_ZONES):
+            dur = zone_durations[z] if z < len(zone_durations) else {"hr": 0, "min": 0}
+            payload[f"z{z+1}durHr"] = str(dur.get("hr", 0))
+            payload[f"z{z+1}durMin"] = str(dur.get("min", 0))
+
+        await self._post(ENDPOINT_SAVE_PROGRAM, payload)
         await self.async_request_refresh()
 
     async def async_enable_system(self) -> None:

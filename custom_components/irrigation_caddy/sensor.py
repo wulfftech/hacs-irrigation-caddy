@@ -14,7 +14,7 @@ from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from .const import DOMAIN
 from .coordinator import IrrigationCaddyCoordinator
-from .switch import _device_info
+from .device_info import system_device_info
 
 
 async def async_setup_entry(
@@ -31,6 +31,11 @@ async def async_setup_entry(
     ])
 
 
+def _sys(coordinator: IrrigationCaddyCoordinator, entry: ConfigEntry):
+    fw = coordinator.data.firmware_version if coordinator.data else ""
+    return system_device_info(coordinator.host, coordinator.port, entry, fw)
+
+
 class IrrigationCaddyActiveZoneSensor(CoordinatorEntity[IrrigationCaddyCoordinator], SensorEntity):
     """Reports the currently active zone name (or 'None')."""
 
@@ -40,8 +45,12 @@ class IrrigationCaddyActiveZoneSensor(CoordinatorEntity[IrrigationCaddyCoordinat
 
     def __init__(self, coordinator: IrrigationCaddyCoordinator, entry: ConfigEntry) -> None:
         super().__init__(coordinator)
+        self._entry = entry
         self._attr_unique_id = f"{entry.entry_id}_active_zone"
-        self._attr_device_info = _device_info(coordinator, entry)
+
+    @property
+    def device_info(self):
+        return _sys(self.coordinator, self._entry)
 
     @property
     def native_value(self) -> str:
@@ -68,8 +77,12 @@ class IrrigationCaddyActiveProgramSensor(CoordinatorEntity[IrrigationCaddyCoordi
 
     def __init__(self, coordinator: IrrigationCaddyCoordinator, entry: ConfigEntry) -> None:
         super().__init__(coordinator)
+        self._entry = entry
         self._attr_unique_id = f"{entry.entry_id}_active_program"
-        self._attr_device_info = _device_info(coordinator, entry)
+
+    @property
+    def device_info(self):
+        return _sys(self.coordinator, self._entry)
 
     @property
     def native_value(self) -> int:
@@ -90,8 +103,12 @@ class IrrigationCaddyZoneTimeRemainingSensor(CoordinatorEntity[IrrigationCaddyCo
 
     def __init__(self, coordinator: IrrigationCaddyCoordinator, entry: ConfigEntry) -> None:
         super().__init__(coordinator)
+        self._entry = entry
         self._attr_unique_id = f"{entry.entry_id}_zone_sec_left"
-        self._attr_device_info = _device_info(coordinator, entry)
+
+    @property
+    def device_info(self):
+        return _sys(self.coordinator, self._entry)
 
     @property
     def native_value(self) -> int:
@@ -112,8 +129,12 @@ class IrrigationCaddyProgramTimeRemainingSensor(CoordinatorEntity[IrrigationCadd
 
     def __init__(self, coordinator: IrrigationCaddyCoordinator, entry: ConfigEntry) -> None:
         super().__init__(coordinator)
+        self._entry = entry
         self._attr_unique_id = f"{entry.entry_id}_prog_sec_left"
-        self._attr_device_info = _device_info(coordinator, entry)
+
+    @property
+    def device_info(self):
+        return _sys(self.coordinator, self._entry)
 
     @property
     def native_value(self) -> int:

@@ -10,7 +10,7 @@ from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from .const import CONF_ZONE_DURATION, DEFAULT_ZONE_DURATION, DOMAIN
 from .coordinator import IrrigationCaddyCoordinator
-from .switch import _device_info
+from .device_info import zones_device_info
 
 
 async def async_setup_entry(
@@ -37,7 +37,7 @@ class IrrigationCaddyZoneDurationNumber(CoordinatorEntity[IrrigationCaddyCoordin
         super().__init__(coordinator)
         self._entry = entry
         self._attr_unique_id = f"{entry.entry_id}_zone_duration"
-        self._attr_device_info = _device_info(coordinator, entry)
+        self._attr_device_info = zones_device_info(entry)
 
     @property
     def native_max_value(self) -> float:
