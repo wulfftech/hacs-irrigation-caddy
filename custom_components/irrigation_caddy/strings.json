@@ -1,0 +1,31 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Connect to Irrigation Caddy",
+        "description": "Enter the hostname or IP address of your Irrigation Caddy controller.",
+        "data": {
+          "host": "Host / IP address",
+          "port": "Port (default 80)"
+        }
+      }
+    },
+    "error": {
+      "cannot_connect": "Unable to connect to the Irrigation Caddy. Check the host/IP and that the device is online.",
+      "unknown": "Unexpected error. Check the logs for details."
+    },
+    "abort": {
+      "already_configured": "This Irrigation Caddy is already configured."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Irrigation Caddy Options",
+        "data": {
+          "zone_duration": "Default zone run duration (minutes)"
+        }
+      }
+    }
+  }
+}
