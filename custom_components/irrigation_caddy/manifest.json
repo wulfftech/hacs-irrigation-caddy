@@ -1,12 +1,12 @@
 {
   "domain": "irrigation_caddy",
   "name": "Irrigation Caddy",
-  "version": "1.0.0",
-  "config_flow": true,
-  "documentation": "https://github.com/wulfftech/hacs-irrigation-caddy",
-  "issue_tracker": "https://github.com/wulfftech/hacs-irrigation-caddy/issues",
-  "dependencies": [],
   "codeowners": ["@wulfftech"],
+  "config_flow": true,
+  "dependencies": [],
+  "documentation": "https://github.com/wulfftech/hacs-irrigation-caddy",
+  "iot_class": "local_polling",
+  "issue_tracker": "https://github.com/wulfftech/hacs-irrigation-caddy/issues",
   "requirements": [],
-  "iot_class": "local_polling"
+  "version": "1.0.0"
 }
