@@ -20,7 +20,7 @@ ENDPOINT_SETTINGS = "/settingsVars.json"
 ENDPOINT_RUN_PROGRAM = "/runProgram.htm"
 ENDPOINT_RUN_SPRINKLERS = "/runSprinklers.htm"
 ENDPOINT_STOP_SPRINKLERS = "/stopSprinklers.htm"
-ENDPOINT_RUN_ZONE = "/runZ.htm"
+ENDPOINT_SAVE_PROGRAM = "/saveProgram.htm"  # used for Run Now (pgmNum=4) with per-zone durations
 
 UDP_DISCOVERY_PORT = 30303
 UDP_DISCOVERY_MESSAGE = "Discovery: Who is out there?"

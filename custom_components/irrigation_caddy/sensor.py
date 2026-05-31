@@ -9,7 +9,6 @@ from homeassistant.components.sensor import (
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import UnitOfTime
 from homeassistant.core import HomeAssistant
-from homeassistant.helpers.entity import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
@@ -27,7 +26,8 @@ async def async_setup_entry(
     async_add_entities([
         IrrigationCaddyActiveZoneSensor(coordinator, entry),
         IrrigationCaddyActiveProgramSensor(coordinator, entry),
-        IrrigationCaddyRemainingTimeSensor(coordinator, entry),
+        IrrigationCaddyZoneTimeRemainingSensor(coordinator, entry),
+        IrrigationCaddyProgramTimeRemainingSensor(coordinator, entry),
     ])
 
 
@@ -47,10 +47,16 @@ class IrrigationCaddyActiveZoneSensor(CoordinatorEntity[IrrigationCaddyCoordinat
     def native_value(self) -> str:
         if not self.coordinator.data:
             return "Unknown"
-        for i, active in enumerate(self.coordinator.data.active_zones):
-            if active:
-                return self.coordinator.data.zone_names[i]
-        return "None"
+        z = self.coordinator.data.zone_number
+        if z == 0:
+            return "None"
+        return self.coordinator.data.zone_names[z - 1]
+
+    @property
+    def extra_state_attributes(self) -> dict:
+        if not self.coordinator.data:
+            return {}
+        return {"zone_number": self.coordinator.data.zone_number}
 
 
 class IrrigationCaddyActiveProgramSensor(CoordinatorEntity[IrrigationCaddyCoordinator], SensorEntity):
@@ -69,14 +75,14 @@ class IrrigationCaddyActiveProgramSensor(CoordinatorEntity[IrrigationCaddyCoordi
     def native_value(self) -> int:
         if not self.coordinator.data:
             return 0
-        return self.coordinator.data.active_program
+        return self.coordinator.data.prog_number
 
 
-class IrrigationCaddyRemainingTimeSensor(CoordinatorEntity[IrrigationCaddyCoordinator], SensorEntity):
-    """Reports remaining watering time in seconds."""
+class IrrigationCaddyZoneTimeRemainingSensor(CoordinatorEntity[IrrigationCaddyCoordinator], SensorEntity):
+    """Seconds remaining for the active zone."""
 
     _attr_has_entity_name = True
-    _attr_name = "Remaining Time"
+    _attr_name = "Zone Time Remaining"
     _attr_device_class = SensorDeviceClass.DURATION
     _attr_state_class = SensorStateClass.MEASUREMENT
     _attr_native_unit_of_measurement = UnitOfTime.SECONDS
@@ -84,11 +90,33 @@ class IrrigationCaddyRemainingTimeSensor(CoordinatorEntity[IrrigationCaddyCoordi
 
     def __init__(self, coordinator: IrrigationCaddyCoordinator, entry: ConfigEntry) -> None:
         super().__init__(coordinator)
-        self._attr_unique_id = f"{entry.entry_id}_remaining_time"
+        self._attr_unique_id = f"{entry.entry_id}_zone_sec_left"
         self._attr_device_info = _device_info(coordinator, entry)
 
     @property
     def native_value(self) -> int:
         if not self.coordinator.data:
             return 0
-        return self.coordinator.data.remaining_seconds
+        return self.coordinator.data.zone_sec_left
+
+
+class IrrigationCaddyProgramTimeRemainingSensor(CoordinatorEntity[IrrigationCaddyCoordinator], SensorEntity):
+    """Seconds remaining for the active program run."""
+
+    _attr_has_entity_name = True
+    _attr_name = "Program Time Remaining"
+    _attr_device_class = SensorDeviceClass.DURATION
+    _attr_state_class = SensorStateClass.MEASUREMENT
+    _attr_native_unit_of_measurement = UnitOfTime.SECONDS
+    _attr_icon = "mdi:timer-sand-complete"
+
+    def __init__(self, coordinator: IrrigationCaddyCoordinator, entry: ConfigEntry) -> None:
+        super().__init__(coordinator)
+        self._attr_unique_id = f"{entry.entry_id}_prog_sec_left"
+        self._attr_device_info = _device_info(coordinator, entry)
+
+    @property
+    def native_value(self) -> int:
+        if not self.coordinator.data:
+            return 0
+        return self.coordinator.data.prog_sec_left
