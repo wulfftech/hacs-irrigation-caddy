@@ -25,7 +25,7 @@ A Home Assistant custom integration for the **KGControls Irrigation Caddy S1** (
 ### Via HACS (recommended)
 
 1. Open HACS → Integrations → ⋮ → Custom repositories
-2. Add `https://github.com/shannonwulff/hacs-irrigation-caddy` as an **Integration**
+2. Add `https://github.com/wulfftech/hacs-irrigation-caddy` as an **Integration**
 3. Search for "Irrigation Caddy" and install
 4. Restart Home Assistant
 

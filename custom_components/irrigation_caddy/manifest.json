@@ -3,10 +3,10 @@
   "name": "Irrigation Caddy",
   "version": "1.0.0",
   "config_flow": true,
-  "documentation": "https://github.com/shannonwulff/hacs-irrigation-caddy",
-  "issue_tracker": "https://github.com/shannonwulff/hacs-irrigation-caddy/issues",
+  "documentation": "https://github.com/wulfftech/hacs-irrigation-caddy",
+  "issue_tracker": "https://github.com/wulfftech/hacs-irrigation-caddy/issues",
   "dependencies": [],
-  "codeowners": ["@shannonwulff"],
+  "codeowners": ["@wulfftech"],
   "requirements": [],
   "iot_class": "local_polling"
 }
