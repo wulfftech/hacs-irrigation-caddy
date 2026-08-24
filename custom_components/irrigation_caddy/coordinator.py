@@ -24,10 +24,30 @@ from .const import (
     ENDPOINT_SAVE_PROGRAM,
     ENDPOINT_RUN_SPRINKLERS,
     ENDPOINT_STOP_SPRINKLERS,
+    ENDPOINT_RUN_NOW_VARS,
     MAX_ZONES,
 )
 
 _LOGGER = logging.getLogger(__name__)
+
+_ZDUR_RE = re.compile(r"zDur\s*:\s*\[(.*?)\]", re.S)
+_DUR_ITEM_RE = re.compile(r"\{\s*hr\s*:\s*(\d+)\s*,\s*min\s*:\s*(\d+)\s*\}")
+
+
+def _parse_run_now_durations(text: str) -> list[dict]:
+    """Extract the Run Now (pgmNum=4) zone durations from indexVarsDyn.js text.
+
+    The file is a hand-generated JS object literal; zDur looks like:
+        zDur : [{hr:0, min:5},{hr:0, min:0}, ...]
+    Zone 1 first. Returns [] if the block can't be found.
+    """
+    match = _ZDUR_RE.search(text)
+    if not match:
+        return []
+    return [
+        {"hr": int(hr), "min": int(min)}
+        for hr, min in _DUR_ITEM_RE.findall(match.group(1))
+    ]
 
 
 @dataclass
@@ -57,6 +77,11 @@ class IrrigationCaddyData:
 
     # programData.json — bare array
     programs: list[dict] = field(default_factory=list)
+
+    # Run Now (pgmNum=4) stored zone durations, parsed from js/indexVarsDyn.js.
+    # The firmware persists the last manual run's per-zone config here; a bare
+    # list of {hr, min} dicts, zone 1 first. Empty if it couldn't be read.
+    run_now_durations: list[dict] = field(default_factory=list)
 
     # settingsVars.json
     firmware_version: str = ""
@@ -93,6 +118,13 @@ class IrrigationCaddyCoordinator(DataUpdateCoordinator[IrrigationCaddyData]):
             resp.raise_for_status()
             return await resp.json(content_type=None)
 
+    async def _get_text(self, endpoint: str) -> str:
+        """GET an endpoint and return the raw body text (non-JSON resources)."""
+        session = await self._get_session()
+        async with session.get(self._url(endpoint)) as resp:
+            resp.raise_for_status()
+            return await resp.text()
+
     async def _post(self, endpoint: str, data: dict) -> None:
         session = await self._get_session()
         async with session.post(
@@ -104,11 +136,12 @@ class IrrigationCaddyCoordinator(DataUpdateCoordinator[IrrigationCaddyData]):
 
     async def _async_update_data(self) -> IrrigationCaddyData:
         try:
-            status, zone_names_raw, programs_raw, settings_raw = await asyncio.gather(
+            status, zone_names_raw, programs_raw, settings_raw, run_now_raw = await asyncio.gather(
                 self._get(ENDPOINT_STATUS),
                 self._get(ENDPOINT_ZONE_NAMES),
                 self._get(ENDPOINT_PROGRAM_DATA),
                 self._get(ENDPOINT_SETTINGS),
+                self._get_text(ENDPOINT_RUN_NOW_VARS),
                 return_exceptions=True,
             )
 
@@ -156,6 +189,12 @@ class IrrigationCaddyCoordinator(DataUpdateCoordinator[IrrigationCaddyData]):
             if not isinstance(settings_raw, Exception) and isinstance(settings_raw, dict):
                 data.firmware_version = settings_raw.get("icVersion", "")
                 data.max_zone_run_time = int(settings_raw.get("maxZRunTime", 40))
+
+            # js/indexVarsDyn.js — the stored Run Now (pgmNum=4) zone durations.
+            # Plain JS object text; parse the zDur array out of it. Optional:
+            # failure just leaves run_now_durations empty.
+            if not isinstance(run_now_raw, Exception) and isinstance(run_now_raw, str):
+                data.run_now_durations = _parse_run_now_durations(run_now_raw)
 
             return data
 
@@ -215,6 +254,36 @@ class IrrigationCaddyCoordinator(DataUpdateCoordinator[IrrigationCaddyData]):
         for z in range(1, MAX_ZONES + 1):
             payload[f"z{z}durHr"] = "0"
             payload[f"z{z}durMin"] = str(duration_minutes) if z == zone else "0"
+
+        await self._post(ENDPOINT_SAVE_PROGRAM, payload)
+        await self._refresh_now()
+
+    async def async_run_now_repeat(self) -> None:
+        """Re-run the stored Run Now (pgmNum=4) configuration.
+
+        The firmware persists the last manual run's per-zone durations; this
+        re-submits them unchanged with runNow=1, i.e. "repeat last manual
+        watering". Raises UpdateFailed if no durations are known yet.
+        """
+        durations = (
+            list(self.data.run_now_durations)
+            if self.data and self.data.run_now_durations else []
+        )
+        if not any(d.get("hr", 0) or d.get("min", 0) for d in durations[:MAX_ZONES]):
+            raise UpdateFailed(
+                "No Run Now configuration stored on the device to repeat — "
+                "run a zone or program first"
+            )
+
+        payload: dict[str, str] = {
+            "doProgram": "1",
+            "pgmNum": "4",
+            "runNow": "1",
+        }
+        for z in range(1, MAX_ZONES + 1):
+            dur = durations[z - 1] if z <= len(durations) else {}
+            payload[f"z{z}durHr"] = str(int(dur.get("hr", 0)))
+            payload[f"z{z}durMin"] = str(int(dur.get("min", 0)))
 
         await self._post(ENDPOINT_SAVE_PROGRAM, payload)
         await self._refresh_now()

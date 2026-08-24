@@ -28,6 +28,7 @@ async def async_setup_entry(
     entities: list[SensorEntity] = [
         IrrigationCaddyActiveZoneSensor(coordinator, entry),
         IrrigationCaddyActiveProgramSensor(coordinator, entry),
+        IrrigationCaddyRunNowSensor(coordinator, entry),
         IrrigationCaddyZoneTimeRemainingSensor(coordinator, entry),
         IrrigationCaddyProgramTimeRemainingSensor(coordinator, entry),
     ]
@@ -161,6 +162,49 @@ class IrrigationCaddyProgramStateSensor(CoordinatorEntity[IrrigationCaddyCoordin
                 durations[zone_name] = minutes
         attrs["zone_durations_minutes"] = durations
         attrs["total_run_minutes"] = sum(durations.values())
+        return attrs
+
+
+class IrrigationCaddyRunNowSensor(CoordinatorEntity[IrrigationCaddyCoordinator], SensorEntity):
+    """State of the device's Run Now pseudo-program (pgmNum=4).
+
+    Any manual run — zone button or program Run Now — executes as pgmNum=4,
+    so this reads "running" whenever a manual watering is in progress.
+    Attributes show the stored per-zone durations the firmware keeps for
+    Run Now (replayed by button.run_now_repeat).
+    """
+
+    _attr_has_entity_name = True
+    _attr_name = "Run Now State"
+    _attr_icon = "mdi:hand-water"
+
+    def __init__(self, coordinator: IrrigationCaddyCoordinator, entry: ConfigEntry) -> None:
+        super().__init__(coordinator)
+        self._entry = entry
+        self._attr_unique_id = f"{entry.entry_id}_run_now_state"
+        self._attr_device_info = programs_device_info(entry)
+
+    @property
+    def native_value(self) -> str:
+        if not self.coordinator.data:
+            return "unknown"
+        return "running" if self.coordinator.data.prog_number == 4 else "idle"
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        attrs: dict[str, Any] = {}
+        data = self.coordinator.data
+        if not data:
+            return attrs
+        durations: dict[str, int] = {}
+        for i, dur in enumerate(data.run_now_durations[:MAX_ZONES]):
+            minutes = int(dur.get("hr", 0)) * 60 + int(dur.get("min", 0))
+            if minutes:
+                zone_name = data.zone_names[i] if i < len(data.zone_names) else f"Zone {i+1}"
+                durations[zone_name] = minutes
+        attrs["stored_zone_durations_minutes"] = durations
+        if self.coordinator.data.prog_number == 4:
+            attrs["remaining_seconds"] = self.coordinator.data.prog_sec_left
         return attrs
 
 

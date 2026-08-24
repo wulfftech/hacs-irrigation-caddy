@@ -21,6 +21,7 @@ ENDPOINT_RUN_PROGRAM = "/runProgram.htm"
 ENDPOINT_RUN_SPRINKLERS = "/runSprinklers.htm"
 ENDPOINT_STOP_SPRINKLERS = "/stopSprinklers.htm"
 ENDPOINT_SAVE_PROGRAM = "/program.htm"  # form action for Run Now (pgmNum=4) with per-zone durations
+ENDPOINT_RUN_NOW_VARS = "/js/indexVarsDyn.js"  # exposes the stored Run Now (pgmNum=4) zone durations
 
 UDP_DISCOVERY_PORT = 30303
 UDP_DISCOVERY_MESSAGE = "Discovery: Who is out there?"

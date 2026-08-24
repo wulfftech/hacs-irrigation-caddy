@@ -35,6 +35,8 @@ async def async_setup_entry(
     for program in range(1, MAX_PROGRAMS + 1):
         entities.append(IrrigationCaddyProgramRunButton(coordinator, entry, program))
 
+    entities.append(IrrigationCaddyRunNowRepeatButton(coordinator, entry))
+
     async_add_entities(entities)
 
 
@@ -121,3 +123,24 @@ class IrrigationCaddyProgramRunButton(CoordinatorEntity[IrrigationCaddyCoordinat
 
     async def async_press(self) -> None:
         await self.coordinator.async_run_program(self._program)
+
+
+class IrrigationCaddyRunNowRepeatButton(CoordinatorEntity[IrrigationCaddyCoordinator], ButtonEntity):
+    """Re-run the stored Run Now configuration ("repeat last manual watering").
+
+    The firmware persists the per-zone durations of the last manual run; this
+    replays them unchanged. Fails with a clear error if nothing is stored yet.
+    """
+
+    _attr_has_entity_name = True
+    _attr_name = "Repeat Run Now"
+    _attr_icon = "mdi:replay"
+
+    def __init__(self, coordinator: IrrigationCaddyCoordinator, entry: ConfigEntry) -> None:
+        super().__init__(coordinator)
+        self._entry = entry
+        self._attr_unique_id = f"{entry.entry_id}_run_now_repeat"
+        self._attr_device_info = programs_device_info(entry)
+
+    async def async_press(self) -> None:
+        await self.coordinator.async_run_now_repeat()

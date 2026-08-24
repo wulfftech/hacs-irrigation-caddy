@@ -59,9 +59,11 @@ For a controller named "Irrigation Caddy (icaddy.local)":
 | `button.run_zone_N_now` × 9 | Button | Run that zone now for the configured duration |
 | `button.run_program_N_now` × 3 | Button | Trigger that program's schedule immediately |
 | `button.stop_watering` | Button | Stop the active zone (system stays enabled) |
+| `button.repeat_run_now` | Button | Replay the last manual watering's zone durations |
 | `switch.system` | Switch | Master ON/OFF (disables all watering when off) |
 | `switch.program_N_enabled` × 3 | Switch | Arm/disarm each program's schedule |
 | `sensor.program_N_state` × 3 | Sensor | `running` / `enabled` / `disabled` + schedule attributes |
+| `sensor.run_now_state` | Sensor | `running` while a manual run is active + stored Run Now durations |
 | `sensor.active_zone` | Sensor | Name of currently active zone |
 | `sensor.active_program` | Sensor | Active program number (0 = none, 4 = manual run) |
 | `sensor.zone_time_remaining` / `_program_time_remaining` | Sensor | Seconds left in current run |
