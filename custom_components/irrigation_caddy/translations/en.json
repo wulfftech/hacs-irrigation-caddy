@@ -51,7 +51,7 @@
         },
         "zone_durations": {
           "name": "Zone durations",
-          "description": "Map of zone number to run duration in minutes, e.g. {\"1\": 10, \"3\": 15}. Zones not listed are set to 0 (skipped). Omit to keep current durations."
+          "description": "Map of zone number to run duration in minutes, e.g. zone 1 = 10, zone 3 = 15. Zones not listed are set to 0 (skipped). Omit to keep current durations."
         }
       }
     }
