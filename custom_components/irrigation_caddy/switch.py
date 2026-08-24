@@ -122,7 +122,11 @@ class IrrigationCaddyZoneSwitch(CoordinatorEntity[IrrigationCaddyCoordinator], S
 
 
 class IrrigationCaddyProgramRunSwitch(CoordinatorEntity[IrrigationCaddyCoordinator], SwitchEntity):
-    """Run-now switch for a saved program — on = run immediately, off = stop all."""
+    """Run-now switch for a saved program — on = run immediately, off = stop watering.
+
+    Turning off stops the active zone only (stop=active); it does NOT disable
+    the whole system the way the web UI's System OFF button does.
+    """
 
     _attr_device_class = SwitchDeviceClass.SWITCH
     _attr_has_entity_name = True
@@ -135,9 +139,14 @@ class IrrigationCaddyProgramRunSwitch(CoordinatorEntity[IrrigationCaddyCoordinat
         self._attr_name = f"Program {program} Run"
         self._attr_icon = "mdi:play-circle-outline"
         self._attr_device_info = programs_device_info(entry)
+        # Optimistic state so the switch responds instantly; corrected on next
+        # coordinator refresh (which each command triggers immediately).
+        self._optimistic_state: bool | None = None
 
     @property
     def is_on(self) -> bool:
+        if self._optimistic_state is not None:
+            return self._optimistic_state
         if not self.coordinator.data:
             return False
         return self.coordinator.data.prog_number == self._program
@@ -160,11 +169,28 @@ class IrrigationCaddyProgramRunSwitch(CoordinatorEntity[IrrigationCaddyCoordinat
                 attrs["total_run_minutes"] = total_min
         return attrs
 
+    def _handle_coordinator_update(self) -> None:
+        """Clear optimistic state once real device data arrives."""
+        self._optimistic_state = None
+        super()._handle_coordinator_update()
+
     async def async_turn_on(self, **kwargs: Any) -> None:
-        await self.coordinator.async_run_program(self._program)
+        self._optimistic_state = True
+        self.async_write_ha_state()
+        try:
+            await self.coordinator.async_run_program(self._program)
+        except Exception:
+            self._optimistic_state = None
+            raise
 
     async def async_turn_off(self, **kwargs: Any) -> None:
-        await self.coordinator.async_stop_all()
+        self._optimistic_state = False
+        self.async_write_ha_state()
+        try:
+            await self.coordinator.async_stop_zone()
+        except Exception:
+            self._optimistic_state = None
+            raise
 
 
 class IrrigationCaddyProgramEnableSwitch(CoordinatorEntity[IrrigationCaddyCoordinator], SwitchEntity):
@@ -184,9 +210,14 @@ class IrrigationCaddyProgramEnableSwitch(CoordinatorEntity[IrrigationCaddyCoordi
         self._attr_name = f"Program {program} Enabled"
         self._attr_icon = "mdi:calendar-check-outline"
         self._attr_device_info = programs_device_info(entry)
+        # Optimistic state so the switch responds instantly; corrected on next
+        # coordinator refresh (which each command triggers immediately).
+        self._optimistic_state: bool | None = None
 
     @property
     def is_on(self) -> bool:
+        if self._optimistic_state is not None:
+            return self._optimistic_state
         if not self.coordinator.data or not self.coordinator.data.programs:
             return True
         progs = self.coordinator.data.programs
@@ -194,8 +225,53 @@ class IrrigationCaddyProgramEnableSwitch(CoordinatorEntity[IrrigationCaddyCoordi
             return bool(progs[self._program - 1].get("allowRun", True))
         return True
 
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        """Expose the full schedule for this program."""
+        attrs: dict[str, Any] = {"program_number": self._program}
+        data = self.coordinator.data
+        if not data or not data.programs or self._program > len(data.programs):
+            return attrs
+        prog = data.programs[self._program - 1]
+
+        attrs["enabled"] = bool(prog.get("allowRun", False))
+        attrs["days_to_run"] = [d for d, v in prog.get("daysToRun", {}).items() if v]
+        attrs["start_times"] = [
+            f"{st.get('hr', 0):02d}:{st.get('min', 0):02d}"
+            for st in prog.get("startTimes", [])
+            if st.get("isOn")
+        ]
+        durations = {}
+        for i, dur in enumerate(prog.get("zoneDuration", [])[:MAX_ZONES]):
+            minutes = int(dur.get("hr", 0)) * 60 + int(dur.get("min", 0))
+            if minutes:
+                zone_name = (
+                    data.zone_names[i] if i < len(data.zone_names) else f"Zone {i+1}"
+                )
+                durations[zone_name] = minutes
+        attrs["zone_durations_minutes"] = durations
+        attrs["total_run_minutes"] = sum(durations.values())
+        return attrs
+
+    def _handle_coordinator_update(self) -> None:
+        """Clear optimistic state once real device data arrives."""
+        self._optimistic_state = None
+        super()._handle_coordinator_update()
+
     async def async_turn_on(self, **kwargs: Any) -> None:
-        await self.coordinator.async_set_program_enabled(self._program, True)
+        self._optimistic_state = True
+        self.async_write_ha_state()
+        try:
+            await self.coordinator.async_set_program_enabled(self._program, True)
+        except Exception:
+            self._optimistic_state = None
+            raise
 
     async def async_turn_off(self, **kwargs: Any) -> None:
-        await self.coordinator.async_set_program_enabled(self._program, False)
+        self._optimistic_state = False
+        self.async_write_ha_state()
+        try:
+            await self.coordinator.async_set_program_enabled(self._program, False)
+        except Exception:
+            self._optimistic_state = None
+            raise
