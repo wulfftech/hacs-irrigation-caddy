@@ -1,0 +1,6 @@
+# Local development artifacts
+chat.json
+.device-dump/
+__pycache__/
+*.pyc
+.venv/
