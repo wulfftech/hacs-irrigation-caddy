@@ -24,6 +24,10 @@ PLATFORMS: list[Platform] = [
 
 SERVICE_SET_PROGRAM = "set_program"
 
+# Setup happens exclusively via config entries; async_setup exists only to
+# register domain services.
+CONFIG_SCHEMA = cv.config_entry_only_config_schema(DOMAIN)
+
 ATTR_PROGRAM = "program"
 ATTR_ENABLED = "enabled"
 ATTR_DAYS = "days"
