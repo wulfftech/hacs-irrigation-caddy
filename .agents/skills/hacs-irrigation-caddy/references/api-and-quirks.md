@@ -6,11 +6,11 @@ All payloads verified against live firmware **ICEthS1-2.0.197** by capturing the
 
 | Endpoint | Returns | Notes |
 |---|---|---|
-| `GET /status.json` | object | `zoneNumber` (0=none), `progNumber` (0=none; 4 = Run Now), `allowRun`, `running`, `useSensor1`, `isRaining`, `zoneSecLeft`, `progSecLeft`, `maxZones`, `zoneLog`, per-zone `zones: [{hr,min,isRun}]` |
+| `GET /status.json` | object | `zoneNumber` (0=none), `progNumber` (0=none; 4 = Run Now), `allowRun`, `running`, `useSensor1`, `isRaining`, `zoneSecLeft`, `progSecLeft`, `maxZones`. Also `zoneLog` and, while running, `zones: [{hr,min,isRun}]` — neither is parsed by the coordinator. |
 | `GET /zoneNames.json` | bare array | Up to 9 names |
 | `GET /programData.json` | bare array of programs | `daysToRun`, `startTimes: [{hr,min,isOn}]`, `zoneDuration` (10 entries — entry 10 is a totals row), `allowRun` |
 | `GET /settingsVars.json` | object | `icVersion` (firmware), `maxZRunTime` (minutes cap) |
-| `GET /js/indexVarsDyn.js?program=N` | JS text | Regex `everyNDays\s*:\s*(\d+)` to recover interval schedules before saving |
+| `GET /js/indexVarsDyn.js?program=N` | JS text | Per-program view variables: `progNumber`, `progAllowRun`, `days`, `zDur`, `everyNDays`, `evenOdd`, `startTimesStatus`. `program=4` is the Run Now pseudo-program and labels itself `progNumber : 'Run Now'`. **The `?program=` parameter is mandatory — see quirk 6.** |
 
 Add cache-buster `?rand=<unix time>` to GETs.
 
@@ -19,7 +19,7 @@ Add cache-buster `?rand=<unix time>` to GETs.
 - `POST /runProgram.htm` — Run Now for saved program: `pgmNum`, `doProgram=1`, `runNow=true`, `time=<ms epoch>`.
 - `POST /program.htm` — dual purpose:
   - **Save schedule**: full form payload (see quirks below). `doProgram=1` required or POST is ignored.
-  - **Run single zone** (`async_run_zone`): `pgmNum=4` (= maxProgs+1 "Run Now"), target zone gets its duration, all others zeroed.
+  - **Run single zone** (`async_run_zone`): `pgmNum=4` (= maxProgs+1 "Run Now"), target zone gets its duration, all others zeroed. Submitting replaces the active run rather than queueing behind it.
 - `POST /stopSprinklers.htm`:
   - `stop=active` → stops current watering only, system stays enabled (used by zone/program switch off).
   - `stop=off` → stops AND disables system, `allowRun=false` (System OFF button).
@@ -40,6 +40,18 @@ Add cache-buster `?rand=<unix time>` to GETs.
 3. **`zoneDuration` entry 10 is a totals row** — never echo back on save.
 4. **Firmware-enforced zone run cap**: `maxZRunTime` (default 40 min) — clamp manual durations.
 5. **API varies across firmware versions**; if new behaviour appears, capture firmware version + raw JSON and document it in the PR.
+6. **`indexVarsDyn.js` without `?program=` is not a fixed program.** The device serves whichever program it last had selected, and both a `?program=N` GET and a `program.htm` POST change that selection. Verified live on 2.0.197: a bare request returned program 1's `zDur` while `?program=4` returned Run Now's. Always pass `?program=`, and check the `progNumber` label in the response before trusting the payload — `_async_update_data` discards the Run Now read unless it says `'Run Now'`.
+7. **Run Now durations cannot be saved without watering.** The Run Now page's submit button *is* Run Now: `js/program.js` appends a hidden `runNow=1` to the form whenever `iv.progNumber == "Run Now"`, so any `pgmNum=4` POST starts a run. That is why manual per-zone durations live in HA's config entry options, not on the device.
+8. **`evenodd` is omitted on save** (note the lowercase form field name in `htmlDays.htm`, vs `evenOdd` in `programData.json`). Unchecked checkboxes are not submitted, so the firmware may treat the omission as "clear" — the same data-loss shape as the `everyNDays` bug. Not yet verified against a live device; `programData.json` exposes `evenOdd.{isEven,isUse}` if it needs echoing back.
+
+## Status timing
+
+`status.json` does not update synchronously with a run/stop POST — it can still
+read `running: false` for a second or two afterwards. `_refresh_now()` therefore
+refreshes immediately *and* schedules a second refresh `COMMAND_SETTLE_SECONDS`
+later; the zone switches additionally hold their commanded state for up to
+`OPTIMISTIC_TIMEOUT_SECONDS` so they do not visibly snap back before the device
+catches up. When idle, `status.json` omits the `zones` key entirely.
 
 ## Testing without hardware
 

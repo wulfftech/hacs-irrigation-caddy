@@ -11,9 +11,11 @@ from datetime import timedelta
 import aiohttp
 
 from homeassistant.core import HomeAssistant
+from homeassistant.helpers.event import async_call_later
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 
 from .const import (
+    COMMAND_SETTLE_SECONDS,
     DEFAULT_SCAN_INTERVAL,
     DOMAIN,
     ENDPOINT_PROGRAM_DATA,
@@ -24,18 +26,25 @@ from .const import (
     ENDPOINT_SAVE_PROGRAM,
     ENDPOINT_RUN_SPRINKLERS,
     ENDPOINT_STOP_SPRINKLERS,
-    ENDPOINT_RUN_NOW_VARS,
+    ENDPOINT_PROGRAM_VARS,
     MAX_ZONES,
+    RUN_NOW_PROGRAM,
 )
 
 _LOGGER = logging.getLogger(__name__)
 
+_PROG_NUMBER_RE = re.compile(r"progNumber\s*:\s*'([^']*)'")
+_EVERY_N_DAYS_RE = re.compile(r"everyNDays\s*:\s*(\d+)")
 _ZDUR_RE = re.compile(r"zDur\s*:\s*\[(.*?)\]", re.S)
 _DUR_ITEM_RE = re.compile(r"\{\s*hr\s*:\s*(\d+)\s*,\s*min\s*:\s*(\d+)\s*\}")
 
+# js/indexVarsDyn.js labels the Run Now pseudo-program with this string rather
+# than a number (js/program.js branches on it to hide the schedule fields).
+RUN_NOW_LABEL = "Run Now"
 
-def _parse_run_now_durations(text: str) -> list[dict]:
-    """Extract the Run Now (pgmNum=4) zone durations from indexVarsDyn.js text.
+
+def _parse_zone_durations(text: str) -> list[dict]:
+    """Extract the zDur array from an indexVarsDyn.js response.
 
     The file is a hand-generated JS object literal; zDur looks like:
         zDur : [{hr:0, min:5},{hr:0, min:0}, ...]
@@ -45,8 +54,8 @@ def _parse_run_now_durations(text: str) -> list[dict]:
     if not match:
         return []
     return [
-        {"hr": int(hr), "min": int(min)}
-        for hr, min in _DUR_ITEM_RE.findall(match.group(1))
+        {"hr": int(hours), "min": int(minutes)}
+        for hours, minutes in _DUR_ITEM_RE.findall(match.group(1))
     ]
 
 
@@ -68,9 +77,6 @@ class IrrigationCaddyData:
     zone_sec_left: int = 0        # seconds remaining for current zone
     prog_sec_left: int = 0        # seconds remaining in whole program run
     max_zones: int = MAX_ZONES
-    zone_log: list = field(default_factory=list)
-    # Per-zone schedule data while running: [{hr, min, isRun}, ...]
-    zones: list[dict] = field(default_factory=list)
 
     # zoneNames.json — bare array
     zone_names: list[str] = field(default_factory=lambda: [f"Zone {i+1}" for i in range(MAX_ZONES)])
@@ -78,9 +84,10 @@ class IrrigationCaddyData:
     # programData.json — bare array
     programs: list[dict] = field(default_factory=list)
 
-    # Run Now (pgmNum=4) stored zone durations, parsed from js/indexVarsDyn.js.
-    # The firmware persists the last manual run's per-zone config here; a bare
-    # list of {hr, min} dicts, zone 1 first. Empty if it couldn't be read.
+    # Run Now (pgmNum=4) stored zone durations, parsed from
+    # js/indexVarsDyn.js?program=4. The firmware persists the last manual run's
+    # per-zone config there; a bare list of {hr, min} dicts, zone 1 first.
+    # Empty if it couldn't be read.
     run_now_durations: list[dict] = field(default_factory=list)
 
     # settingsVars.json
@@ -118,10 +125,22 @@ class IrrigationCaddyCoordinator(DataUpdateCoordinator[IrrigationCaddyData]):
             resp.raise_for_status()
             return await resp.json(content_type=None)
 
-    async def _get_text(self, endpoint: str) -> str:
-        """GET an endpoint and return the raw body text (non-JSON resources)."""
+    async def _get_program_vars(self, program: int) -> str:
+        """Fetch js/indexVarsDyn.js for one program and return the raw JS text.
+
+        The ?program= parameter is mandatory. Without it the device serves
+        whichever program it happens to have selected (verified live: a bare
+        request returns program 1, or whatever a previous ?program= request or
+        program.htm POST last selected), so an unparameterised read silently
+        attributes one program's data to another. program=RUN_NOW_PROGRAM
+        returns the Run Now pseudo-program, labelled progNumber:'Run Now'.
+        """
         session = await self._get_session()
-        async with session.get(self._url(endpoint)) as resp:
+        url = (
+            f"{self._base_url}{ENDPOINT_PROGRAM_VARS}"
+            f"?program={program}&rand={int(time.time())}"
+        )
+        async with session.get(url) as resp:
             resp.raise_for_status()
             return await resp.text()
 
@@ -141,7 +160,7 @@ class IrrigationCaddyCoordinator(DataUpdateCoordinator[IrrigationCaddyData]):
                 self._get(ENDPOINT_ZONE_NAMES),
                 self._get(ENDPOINT_PROGRAM_DATA),
                 self._get(ENDPOINT_SETTINGS),
-                self._get_text(ENDPOINT_RUN_NOW_VARS),
+                self._get_program_vars(RUN_NOW_PROGRAM),
                 return_exceptions=True,
             )
 
@@ -160,8 +179,6 @@ class IrrigationCaddyCoordinator(DataUpdateCoordinator[IrrigationCaddyData]):
                 data.zone_sec_left = int(status.get("zoneSecLeft", 0))
                 data.prog_sec_left = int(status.get("progSecLeft", 0))
                 data.max_zones = int(status.get("maxZones", MAX_ZONES))
-                data.zone_log = status.get("zoneLog", [])
-                data.zones = status.get("zones", [])
 
             # zoneNames.json returns a bare JSON array
             if not isinstance(zone_names_raw, Exception) and isinstance(zone_names_raw, list):
@@ -190,11 +207,24 @@ class IrrigationCaddyCoordinator(DataUpdateCoordinator[IrrigationCaddyData]):
                 data.firmware_version = settings_raw.get("icVersion", "")
                 data.max_zone_run_time = int(settings_raw.get("maxZRunTime", 40))
 
-            # js/indexVarsDyn.js — the stored Run Now (pgmNum=4) zone durations.
+            # js/indexVarsDyn.js?program=4 — the stored Run Now zone durations.
             # Plain JS object text; parse the zDur array out of it. Optional:
-            # failure just leaves run_now_durations empty.
+            # failure just leaves run_now_durations empty. Confirm the device
+            # really served the Run Now page before trusting zDur, so a
+            # firmware that ignores ?program= can't pass off a saved program's
+            # durations as the manual-run config.
             if not isinstance(run_now_raw, Exception) and isinstance(run_now_raw, str):
-                data.run_now_durations = _parse_run_now_durations(run_now_raw)
+                label = _PROG_NUMBER_RE.search(run_now_raw)
+                if label and label.group(1) == RUN_NOW_LABEL:
+                    data.run_now_durations = _parse_zone_durations(run_now_raw)
+                else:
+                    _LOGGER.debug(
+                        "Ignoring zDur from %s?program=%d: expected progNumber %r, got %r",
+                        ENDPOINT_PROGRAM_VARS,
+                        RUN_NOW_PROGRAM,
+                        RUN_NOW_LABEL,
+                        label.group(1) if label else None,
+                    )
 
             return data
 
@@ -212,8 +242,21 @@ class IrrigationCaddyCoordinator(DataUpdateCoordinator[IrrigationCaddyData]):
     # js/status.js) and round-trip testing against the device.
 
     async def _refresh_now(self) -> None:
-        """Bypass the coordinator throttle so entities reflect the command."""
+        """Bypass the coordinator throttle so entities reflect the command.
+
+        The controller does not update status.json synchronously — a run POST
+        can still read back running=false for a couple of seconds. Refresh
+        immediately for the fast cases, then again once it has settled, rather
+        than leaving entities showing stale state until the next 30s poll.
+        """
         await self.async_refresh()
+        if self.hass is None:  # standalone dev harness, no event loop helpers
+            return
+
+        async def _settle(_now) -> None:
+            await self.async_refresh()
+
+        async_call_later(self.hass, COMMAND_SETTLE_SECONDS, _settle)
 
     @staticmethod
     def _to_12h(hour_24: int) -> tuple[int, str]:
@@ -248,7 +291,7 @@ class IrrigationCaddyCoordinator(DataUpdateCoordinator[IrrigationCaddyData]):
 
         payload: dict[str, str] = {
             "doProgram": "1",
-            "pgmNum": "4",   # 4 = Run Now (maxProgs + 1)
+            "pgmNum": str(RUN_NOW_PROGRAM),
             "runNow": "1",
         }
         for z in range(1, MAX_ZONES + 1):
@@ -277,7 +320,7 @@ class IrrigationCaddyCoordinator(DataUpdateCoordinator[IrrigationCaddyData]):
 
         payload: dict[str, str] = {
             "doProgram": "1",
-            "pgmNum": "4",
+            "pgmNum": str(RUN_NOW_PROGRAM),
             "runNow": "1",
         }
         for z in range(1, MAX_ZONES + 1):
@@ -313,18 +356,12 @@ class IrrigationCaddyCoordinator(DataUpdateCoordinator[IrrigationCaddyData]):
         back. Returns None (meaning "omit from payload") if it can't be read.
         """
         try:
-            session = await self._get_session()
-            url = (
-                f"{self._base_url}/js/indexVarsDyn.js"
-                f"?program={program}&rand={int(time.time())}"
-            )
-            async with session.get(url) as resp:
-                resp.raise_for_status()
-                text = await resp.text()
-            match = re.search(r"everyNDays\s*:\s*(\d+)", text)
-            return int(match.group(1)) if match else None
-        except Exception:
+            text = await self._get_program_vars(program)
+        except Exception as err:  # noqa: BLE001 — best-effort, save proceeds without it
+            _LOGGER.debug("Could not read everyNDays for program %s: %s", program, err)
             return None
+        match = _EVERY_N_DAYS_RE.search(text)
+        return int(match.group(1)) if match else None
 
     def _build_program_payload(
         self,

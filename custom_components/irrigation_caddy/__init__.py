@@ -86,7 +86,7 @@ def _parse_start_time(value) -> tuple[int, int]:
 async def async_setup(hass: HomeAssistant, config) -> bool:
     """Register domain-level services."""
 
-    def _get_coordinator(call: ServiceCall) -> IrrigationCaddyCoordinator:
+    def _get_coordinator() -> IrrigationCaddyCoordinator:
         coordinators = hass.data.get(DOMAIN, {})
         if not coordinators:
             raise HomeAssistantError("No Irrigation Caddy is configured")
@@ -94,7 +94,11 @@ async def async_setup(hass: HomeAssistant, config) -> bool:
         return next(iter(coordinators.values()))
 
     async def handle_set_program(call: ServiceCall) -> None:
-        coordinator = _get_coordinator(call)
+        coordinator = _get_coordinator()
+        if coordinator.data is None:
+            raise HomeAssistantError(
+                "Irrigation Caddy has no data yet — the controller is unreachable"
+            )
         program = call.data[ATTR_PROGRAM]
 
         kwargs: dict = {}
@@ -115,14 +119,21 @@ async def async_setup(hass: HomeAssistant, config) -> bool:
                 start_times.append({"hr": 0, "min": 0, "isOn": False})
             kwargs["start_times"] = start_times[:5]
         if ATTR_ZONE_DURATIONS in call.data:
-            durations = [
-                {"hr": 0, "min": 0} for _ in range(coordinator.data.max_zones)
-            ]
+            max_zones = coordinator.data.max_zones
+            max_run = coordinator.data.max_zone_run_time
+            durations = [{"hr": 0, "min": 0} for _ in range(max_zones)]
             for zone_str, minutes in call.data[ATTR_ZONE_DURATIONS].items():
                 zone = int(zone_str)
-                if not 1 <= zone <= coordinator.data.max_zones:
+                if not 1 <= zone <= max_zones:
                     raise HomeAssistantError(
-                        f"Zone {zone} is out of range (1-{coordinator.data.max_zones})"
+                        f"Zone {zone} is out of range (1-{max_zones})"
+                    )
+                # The controller enforces maxZRunTime itself; reject rather than
+                # silently truncate, so the saved schedule matches what was asked.
+                if minutes > max_run:
+                    raise HomeAssistantError(
+                        f"Zone {zone}: {minutes} minutes exceeds the controller's "
+                        f"maximum zone run time of {max_run} minutes"
                     )
                 durations[zone - 1] = {
                     "hr": minutes // 60,
@@ -147,8 +158,18 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     if unload_ok:
         coordinator: IrrigationCaddyCoordinator = hass.data[DOMAIN].pop(entry.entry_id)
         await coordinator.async_close()
+        if not hass.data[DOMAIN]:
+            hass.services.async_remove(DOMAIN, SERVICE_SET_PROGRAM)
     return unload_ok
 
 
 async def _async_update_listener(hass: HomeAssistant, entry: ConfigEntry) -> None:
-    await hass.config_entries.async_reload(entry.entry_id)
+    """React to an options change without reloading the entry.
+
+    The only option is the manual zone run duration, and every entity that
+    uses it reads entry.options directly — so a state push is enough. Reloading
+    would drop and recreate every entity, briefly flashing them unavailable
+    each time the duration is nudged.
+    """
+    coordinator: IrrigationCaddyCoordinator = hass.data[DOMAIN][entry.entry_id]
+    coordinator.async_update_listeners()

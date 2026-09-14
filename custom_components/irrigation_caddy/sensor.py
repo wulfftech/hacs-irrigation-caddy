@@ -14,7 +14,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
-from .const import DOMAIN, MAX_PROGRAMS, MAX_ZONES
+from .const import DOMAIN, MAX_PROGRAMS, MAX_ZONES, RUN_NOW_PROGRAM
 from .coordinator import IrrigationCaddyCoordinator
 from .device_info import programs_device_info, system_device_info
 
@@ -188,7 +188,7 @@ class IrrigationCaddyRunNowSensor(CoordinatorEntity[IrrigationCaddyCoordinator],
     def native_value(self) -> str:
         if not self.coordinator.data:
             return "unknown"
-        return "running" if self.coordinator.data.prog_number == 4 else "idle"
+        return "running" if self.coordinator.data.prog_number == RUN_NOW_PROGRAM else "idle"
 
     @property
     def extra_state_attributes(self) -> dict[str, Any]:
@@ -203,8 +203,8 @@ class IrrigationCaddyRunNowSensor(CoordinatorEntity[IrrigationCaddyCoordinator],
                 zone_name = data.zone_names[i] if i < len(data.zone_names) else f"Zone {i+1}"
                 durations[zone_name] = minutes
         attrs["stored_zone_durations_minutes"] = durations
-        if self.coordinator.data.prog_number == 4:
-            attrs["remaining_seconds"] = self.coordinator.data.prog_sec_left
+        if data.prog_number == RUN_NOW_PROGRAM:
+            attrs["remaining_seconds"] = data.prog_sec_left
         return attrs
 
 

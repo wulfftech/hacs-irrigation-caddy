@@ -4,3 +4,6 @@ chat.json
 __pycache__/
 *.pyc
 .venv/
+
+# Editor/assistant chat exports
+*Copilot Chat*.md

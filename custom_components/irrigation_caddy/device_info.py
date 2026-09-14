@@ -19,11 +19,17 @@ def system_device_info(host: str, port: int, entry: ConfigEntry, fw: str = "") -
     )
 
 
-def zones_device_info(entry: ConfigEntry) -> DeviceInfo:
-    """Zones sub-device — one switch per zone for manual runs."""
+def run_now_device_info(entry: ConfigEntry) -> DeviceInfo:
+    """Run Now sub-device — per-zone manual run switches and their durations.
+
+    Named to match the device's own web UI, where manual watering lives on a
+    "Run Now" page rather than a zone list. The identifier keeps its original
+    "_zones" suffix so the existing device registry entry (and the entity
+    history attached to it) survives the rename.
+    """
     return DeviceInfo(
         identifiers={(DOMAIN, f"{entry.entry_id}_zones")},
-        name="Zones",
+        name="Run Now",
         manufacturer="KGControls",
         model="Irrigation Caddy S1",
         via_device=(DOMAIN, entry.entry_id),
@@ -31,7 +37,7 @@ def zones_device_info(entry: ConfigEntry) -> DeviceInfo:
 
 
 def programs_device_info(entry: ConfigEntry) -> DeviceInfo:
-    """Programs sub-device — run-now switches and per-program enable switches."""
+    """Programs sub-device — per-program run buttons, enable switches and state."""
     return DeviceInfo(
         identifiers={(DOMAIN, f"{entry.entry_id}_programs")},
         name="Programs",

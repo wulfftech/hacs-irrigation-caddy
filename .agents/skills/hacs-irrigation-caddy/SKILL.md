@@ -5,7 +5,7 @@ description: Work on the hacs-irrigation-caddy HA custom integration.
 
 # HACS Irrigation Caddy Skill
 
-Guide for developing, testing, and releasing the Irrigation Caddy Home Assistant custom integration (KGControls Irrigation Caddy S1 / ICEthS1 ethernet sprinkler controller) in `/mnt/d/Code/hacs-irrigation-caddy`.
+Guide for developing, testing, and releasing the Irrigation Caddy Home Assistant custom integration (KGControls Irrigation Caddy S1 / ICEthS1 ethernet sprinkler controller) in `D:\Code\hacs-irrigation-caddy`.
 
 ## When to Use
 
@@ -17,10 +17,11 @@ Guide for developing, testing, and releasing the Irrigation Caddy Home Assistant
 
 Standard HA config-entry integration (`iot_class: local_polling`, no deps/requirements):
 
-- **Config flow** (`config_flow.py`): user enters host/port; connection tested via `GET /status.json`. Unique ID is `host:port`. Options flow exposes zone run duration. UDP discovery helper exists (broadcast port 30303).
-- **Coordinator** (`coordinator.py`): `DataUpdateCoordinator[IrrigationCaddyData]`, 30s polling; gathers 4 GETs (`status.json`, `zoneNames.json`, `programData.json`, `settingsVars.json`) with `return_exceptions=True` — only `status.json` failure raises `UpdateFailed`. Owns all control POSTs (run program/zone, stop, save schedule). See `references/api-and-quirks.md`.
-- **Entities** (`switch.py`, `sensor.py`, `binary_sensor.py`, `number.py`): all `CoordinatorEntity`; unique IDs keyed on `entry.entry_id`.
-- **Devices** (`device_info.py`): three sub-devices — System, Zones, Programs — under one entry (`via_device` hub pattern).
+- **Config flow** (`config_flow.py`): user enters host/port; connection tested via `GET /status.json`. Unique ID is `host:port`. The options flow is a menu: manual-run defaults, plus a full schedule editor per program (days / 5 start times / per-zone run times) that POSTs straight to the device. No UDP discovery — the device supports it (broadcast port 30303) but nothing wires it up.
+- **Coordinator** (`coordinator.py`): `DataUpdateCoordinator[IrrigationCaddyData]`, 30s polling; gathers 5 GETs (`status.json`, `zoneNames.json`, `programData.json`, `settingsVars.json`, `js/indexVarsDyn.js?program=4`) with `return_exceptions=True` — only `status.json` failure raises `UpdateFailed`. Owns all control POSTs (run program/zone, stop, save schedule). See `references/api-and-quirks.md`.
+- **Entities** (`switch.py`, `button.py`, `sensor.py`, `binary_sensor.py`, `number.py`): all `CoordinatorEntity`; unique IDs keyed on `entry.entry_id`. Zone switches read their ON state from `status.json` (`running` + `zoneNumber`) with a bounded optimistic hold; turning one off posts `stop=active`.
+- **Devices** (`device_info.py`): three sub-devices — System, Run Now, Programs — under one entry (`via_device` hub pattern). The Run Now device keeps the legacy `_zones` identifier suffix so the rename preserves entity history.
+- **Options** (`options.py`): manual-run zone durations live in `entry.options`, because the device cannot store a Run Now duration without also starting the run.
 - **Service**: `irrigation_caddy.set_program` registered in `__init__.py::async_setup` (partial updates preserved from device state).
 
 ## Commands
@@ -68,6 +69,7 @@ See `references/api-and-quirks.md` for full details. Top items:
 - `stopSprinklers.htm`: `stop=active` halts watering but keeps system enabled; `stop=off` also disables the system (allowRun=false). Don't mix them up.
 - Program save form quirks: unchecked days must be omitted, slot 0 start time has no enable checkbox (always armed when time set, and `isOn=false` in programData.json must be normalized), unset slots post empty `startTime{i}`, entry 10 of `zoneDuration` is a totals row that must not be echoed back, `everyNDays` must be read back from `js/indexVarsDyn.js` and echoed to avoid wiping interval schedules.
 - Run-zone uses `pgmNum=4` ("Run Now") via `/program.htm`, not a dedicated endpoint; device reports that run as progNumber=4.
+- `js/indexVarsDyn.js` MUST be fetched with `?program=N`; a bare fetch returns whichever program the device last had selected. See quirk 6.
 - Zone durations capped at firmware `maxZRunTime` (default 40 min); service durations max 720 min.
-- Config entry reload on options change (`_async_update_listener`) — entity values come from `entry.options`, not stored state.
+- Options changes do NOT reload the entry — `_async_update_listener` just calls `coordinator.async_update_listeners()`. Entity values read `entry.options` live, and reloading made every entity flicker unavailable on each duration change.
 - Keep `strings.json` and `translations/en.json` in sync or hassfest fails.

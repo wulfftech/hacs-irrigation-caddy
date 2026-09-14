@@ -6,15 +6,19 @@ A Home Assistant custom integration for the **KGControls Irrigation Caddy S1** (
 
 ## Features
 
+- **Zone switches** — one per zone on a **Run Now** device, mirroring the controller's own
+  Run Now page. Turn one on to water that zone; it stays on for the whole run and turning
+  it off stops it, without disabling the controller
+- **Per-zone run durations** — a minutes box per zone, plus a default for zones you haven't set
+- **Schedule editor** — edit each program's days, start times and per-zone run times from the
+  integration's **Configure** dialog
 - **Program buttons** — momentary "run program now" pushbuttons for each of the 3 programs
-- **Zone buttons** — "Run Zone N Now" buttons; each runs for the configurable zone run duration
-- **Stop Watering button** — halts the current zone without disabling the system
+- **Stop Watering button** — halts whatever is watering without disabling the system
 - **Program enable switches** — arm/disarm any program's schedule (real persisted device state)
 - **Program state sensors** — per-program `running` / `enabled` / `disabled`, with the full
   schedule (days, start times, per-zone durations) exposed as attributes
 - **Sensors** — active zone name, active program number, remaining watering time
 - **Binary sensors** — currently watering, controller enabled/disabled, rain sensor
-- **Number entity** — set the default zone run duration from the HA UI
 - **Config flow** — set up via the HA UI, no YAML required
 - Local polling every 30 seconds — no cloud dependency
 
@@ -44,11 +48,12 @@ Copy `custom_components/irrigation_caddy/` into your HA `custom_components/` dir
 3. Enter your controller's hostname or IP address (e.g. `icaddy.local` or `192.168.1.x`)
 4. Click **Submit**
 
-## Options
+## Configure
 
-After setup, click **Configure** on the integration card to adjust:
+Click **Configure** on the integration card. You get a menu:
 
-- **Zone run duration** — how long a zone runs when you press its run button (default 10 minutes)
+- **Manual run defaults** — the fallback run time for any zone that has no run time of its own
+- **Edit Program 1 / 2 / 3** — the full schedule editor (see below)
 
 ## Entities Created
 
@@ -56,7 +61,9 @@ For a controller named "Irrigation Caddy (icaddy.local)":
 
 | Entity | Type | Description |
 |---|---|---|
-| `button.run_zone_N_now` × 9 | Button | Run that zone now for the configured duration |
+| `switch.run_now_<zone name>` × 9 | Switch | Run that zone now; on while it waters, off to stop it |
+| `number.run_now_<zone name>_duration` × 9 | Number | How long that zone runs when switched on |
+| `number.run_now_default_run_duration` | Number | Fallback duration for zones with no duration of their own |
 | `button.run_program_N_now` × 3 | Button | Trigger that program's schedule immediately |
 | `button.stop_watering` | Button | Stop the active zone (system stays enabled) |
 | `button.repeat_run_now` | Button | Replay the last manual watering's zone durations |
@@ -70,15 +77,39 @@ For a controller named "Irrigation Caddy (icaddy.local)":
 | `binary_sensor.watering` | Binary Sensor | True when any zone is running |
 | `binary_sensor.system_enabled` | Binary Sensor | True when controller is enabled |
 | `binary_sensor.rain_sensor_*` | Binary Sensor | Rain sensor wet/enabled state |
-| `number.zone_run_duration` | Number | Default zone run duration (minutes) |
 
-> Upgrading from ≤ v1.1.x: the old zone and program-run **switches** are gone
-> (replaced by buttons). HA will show them as restored/unavailable — delete
-> them from Settings → Devices & Services → Entities.
+> **Upgrading to v1.4.0.** The "Zones" device is now called **Run Now**, matching the
+> controller's own web UI. The `button.run_zone_N_now` buttons are gone — use the zone
+> switches instead, and update any automation that pressed one. The old
+> `number.zone_run_duration` keeps its entity id and history — it is now labelled
+> *Default Run Duration*, and the new per-zone durations override it.
+> HA will show the removed buttons as restored/unavailable — delete them from
+> Settings → Devices & Services → Entities.
+>
+> Upgrading from ≤ v1.1.x as well: the original zone and program-run switches were replaced
+> by buttons in v1.2.0, so those stale entities may also need deleting.
 
-## Editing Schedules (`set_program` service)
+## Editing Schedules
 
-Schedules are edited with the `irrigation_caddy.set_program` service. Any field
+Two routes, both writing straight to the controller.
+
+### From the UI
+
+**Settings → Devices & Services → Irrigation Caddy → Configure → Edit Program N.**
+The form is pre-filled from the device and shows:
+
+- **Program enabled** — arm or disarm the whole program
+- **Days to run** — checkboxes, Monday through Sunday
+- **Start time 1–5** — leave a slot blank to clear it
+- **Zone 1–9 run time** — minutes, 0 to skip that zone; capped at the controller's
+  own zone limit (`maxZRunTime`, 40 minutes by default)
+
+Submitting sends the whole schedule as one POST, which is exactly how the controller's
+own web form behaves — so a partial edit can't leave it in a half-saved state.
+
+### From an automation (`set_program` service)
+
+The same edits are available as `irrigation_caddy.set_program`. Any field
 you omit keeps its current value on the device, so you can change just days,
 just times, or just durations:
 
@@ -114,9 +145,24 @@ automation:
     platform: time
     at: "18:30:00"
   action:
+    # Runs for whatever number.side_garden_beds_duration is set to
+    - service: switch.turn_on
+      target:
+        entity_id: switch.side_garden_beds
+```
+
+```yaml
+# Cut a run short if rain is forecast
+automation:
+  trigger:
+    platform: state
+    entity_id: binary_sensor.watering
+    to: "on"
+  condition: "{{ state_attr('weather.home', 'forecast')[0].precipitation > 5 }}"
+  action:
     - service: button.press
       target:
-        entity_id: button.irrigation_caddy_run_zone_3_now
+        entity_id: button.stop_watering
 ```
 
 ## API Notes
@@ -129,12 +175,17 @@ ICEthS1-2.0.197) and verified by round-trip testing against a live device:
 - `GET /zoneNames.json` — zone names
 - `GET /programData.json` — schedule data
 - `GET /settingsVars.json` — firmware version, max zone run time
+- `GET /js/indexVarsDyn.js?program=N` — per-program view variables. The `?program=`
+  parameter is mandatory: without it the device returns whichever program it last had
+  selected. `program=4` is the Run Now pseudo-program
 - `POST /runProgram.htm` — run a program now (`pgmNum`, `doProgram=1`, `runNow=true`)
 - `POST /program.htm` — save program schedule / run-now zone durations
 - `POST /stopSprinklers.htm` — stop watering (`stop=active`) or disable system (`stop=off`)
 - `POST /runSprinklers.htm` — re-enable the system (`run=run`)
 
-UDP discovery on port 30303: broadcast `"Discovery: Who is out there?"` to find devices.
+The controller also answers UDP discovery on port 30303 (broadcast
+`"Discovery: Who is out there?"`), though this integration doesn't use it — enter the
+host manually.
 
 ## Contributing
 

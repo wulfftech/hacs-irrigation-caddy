@@ -22,10 +22,92 @@
     "step": {
       "init": {
         "title": "Irrigation Caddy Options",
+        "menu_options": {
+          "manual_run": "Manual run defaults",
+          "program_1": "Edit Program 1",
+          "program_2": "Edit Program 2",
+          "program_3": "Edit Program 3"
+        }
+      },
+      "manual_run": {
+        "title": "Manual run defaults",
+        "description": "The fallback run time for any zone that has no run time of its own. Per-zone run times are set on the Run Now device.",
         "data": {
           "zone_duration": "Default zone run duration (minutes)"
         }
+      },
+      "program_1": {
+        "title": "Program 1",
+        "description": "Edit program {program} on the controller. Leave a start time blank to clear that slot; set a zone to 0 to skip it. Zone run times are capped at {max_run} minutes.\n\nZones — {zones}",
+        "data": {
+          "enabled": "Program enabled",
+          "days": "Days to run",
+          "start_time_1": "Start time 1",
+          "start_time_2": "Start time 2",
+          "start_time_3": "Start time 3",
+          "start_time_4": "Start time 4",
+          "start_time_5": "Start time 5",
+          "zone_1": "Zone 1 run time",
+          "zone_2": "Zone 2 run time",
+          "zone_3": "Zone 3 run time",
+          "zone_4": "Zone 4 run time",
+          "zone_5": "Zone 5 run time",
+          "zone_6": "Zone 6 run time",
+          "zone_7": "Zone 7 run time",
+          "zone_8": "Zone 8 run time",
+          "zone_9": "Zone 9 run time"
+        }
+      },
+      "program_2": {
+        "title": "Program 2",
+        "description": "Edit program {program} on the controller. Leave a start time blank to clear that slot; set a zone to 0 to skip it. Zone run times are capped at {max_run} minutes.\n\nZones — {zones}",
+        "data": {
+          "enabled": "Program enabled",
+          "days": "Days to run",
+          "start_time_1": "Start time 1",
+          "start_time_2": "Start time 2",
+          "start_time_3": "Start time 3",
+          "start_time_4": "Start time 4",
+          "start_time_5": "Start time 5",
+          "zone_1": "Zone 1 run time",
+          "zone_2": "Zone 2 run time",
+          "zone_3": "Zone 3 run time",
+          "zone_4": "Zone 4 run time",
+          "zone_5": "Zone 5 run time",
+          "zone_6": "Zone 6 run time",
+          "zone_7": "Zone 7 run time",
+          "zone_8": "Zone 8 run time",
+          "zone_9": "Zone 9 run time"
+        }
+      },
+      "program_3": {
+        "title": "Program 3",
+        "description": "Edit program {program} on the controller. Leave a start time blank to clear that slot; set a zone to 0 to skip it. Zone run times are capped at {max_run} minutes.\n\nZones — {zones}",
+        "data": {
+          "enabled": "Program enabled",
+          "days": "Days to run",
+          "start_time_1": "Start time 1",
+          "start_time_2": "Start time 2",
+          "start_time_3": "Start time 3",
+          "start_time_4": "Start time 4",
+          "start_time_5": "Start time 5",
+          "zone_1": "Zone 1 run time",
+          "zone_2": "Zone 2 run time",
+          "zone_3": "Zone 3 run time",
+          "zone_4": "Zone 4 run time",
+          "zone_5": "Zone 5 run time",
+          "zone_6": "Zone 6 run time",
+          "zone_7": "Zone 7 run time",
+          "zone_8": "Zone 8 run time",
+          "zone_9": "Zone 9 run time"
+        }
       }
+    },
+    "error": {
+      "save_failed": "The controller rejected the schedule. Check that it is reachable and try again."
+    },
+    "abort": {
+      "no_device_data": "No schedule data has been read from the controller yet. Wait for it to come online and try again."
     }
   },
   "services": {
