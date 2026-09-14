@@ -103,6 +103,11 @@ class IrrigationCaddyCoordinator(DataUpdateCoordinator[IrrigationCaddyData]):
         self.port = port
         self._base_url = f"http://{host}:{port}"
         self._session: aiohttp.ClientSession | None = None
+        # Zones that have entities in this HA instance. Resolved from the
+        # config entry during setup; kept here so the platforms and the options
+        # update listener agree on which set the current entities were built
+        # from. Defaults to every zone until setup narrows it.
+        self.enabled_zones: list[int] = list(range(1, MAX_ZONES + 1))
 
         super().__init__(
             hass,

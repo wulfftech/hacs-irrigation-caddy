@@ -10,10 +10,10 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
-from .const import DOMAIN, MAX_PROGRAMS, MAX_ZONES, OPTIMISTIC_TIMEOUT_SECONDS
+from .const import DOMAIN, MAX_PROGRAMS, OPTIMISTIC_TIMEOUT_SECONDS
 from .coordinator import IrrigationCaddyCoordinator
 from .device_info import programs_device_info, run_now_device_info, system_device_info
-from .options import zone_duration
+from .options import run_now_max, zone_duration
 
 
 async def async_setup_entry(
@@ -25,8 +25,9 @@ async def async_setup_entry(
 
     entities: list[SwitchEntity] = [IrrigationCaddySystemSwitch(coordinator, entry)]
 
-    zone_count = coordinator.data.max_zones if coordinator.data else MAX_ZONES
-    for zone in range(1, zone_count + 1):
+    # Only the zones selected in the options flow get a switch; the rest are
+    # outputs the controller reports but nothing is wired to.
+    for zone in coordinator.enabled_zones:
         entities.append(IrrigationCaddyZoneSwitch(coordinator, entry, zone))
 
     for program in range(1, MAX_PROGRAMS + 1):
@@ -92,7 +93,8 @@ class IrrigationCaddyZoneSwitch(CoordinatorEntity[IrrigationCaddyCoordinator], S
         return attrs
 
     def _duration(self) -> int:
-        max_run = self.coordinator.data.max_zone_run_time if self.coordinator.data else None
+        data = self.coordinator.data
+        max_run = run_now_max(data.max_zone_run_time if data else None)
         return zone_duration(self._entry, self._zone, max_run)
 
     def _hold(self, state: bool) -> None:

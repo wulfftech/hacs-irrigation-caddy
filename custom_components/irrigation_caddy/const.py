@@ -12,10 +12,16 @@ MAX_PROGRAMS = 3
 # and progNumber:'Run Now' in js/indexVarsDyn.js?program=4.
 RUN_NOW_PROGRAM = MAX_PROGRAMS + 1
 
+# Run Now durations are offered as a 1-30 minute slider. The controller's own
+# maxZRunTime still wins whenever it is lower than this.
+RUN_NOW_MIN_DURATION = 1
+RUN_NOW_MAX_DURATION = 30
+
 CONF_HOST = "host"
 CONF_PORT = "port"
 CONF_ZONE_DURATION = "zone_duration"          # int minutes — fallback for every zone
 CONF_ZONE_DURATIONS = "zone_durations"        # {"<zone>": minutes} — per-zone overrides
+CONF_ENABLED_ZONES = "enabled_zones"          # [int] — zones that get entities in HA
 
 # The controller needs a moment after a run/stop POST before status.json
 # reflects it, so each command schedules a second refresh this far out.

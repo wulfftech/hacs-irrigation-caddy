@@ -8,10 +8,10 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
-from .const import CONF_ZONE_DURATION, DOMAIN, MAX_ZONES
+from .const import CONF_ZONE_DURATION, DOMAIN, RUN_NOW_MIN_DURATION
 from .coordinator import IrrigationCaddyCoordinator
 from .device_info import run_now_device_info
-from .options import default_duration, with_zone_duration, zone_duration
+from .options import default_duration, run_now_max, with_zone_duration, zone_duration
 
 
 async def async_setup_entry(
@@ -23,28 +23,32 @@ async def async_setup_entry(
 
     entities: list[NumberEntity] = [IrrigationCaddyDefaultDurationNumber(coordinator, entry)]
 
-    zone_count = coordinator.data.max_zones if coordinator.data else MAX_ZONES
-    for zone in range(1, zone_count + 1):
+    # Matches the switch platform: a duration box only exists for a zone that
+    # is switched on in the options flow.
+    for zone in coordinator.enabled_zones:
         entities.append(IrrigationCaddyZoneDurationNumber(coordinator, entry, zone))
 
     async_add_entities(entities)
 
 
 class _DurationNumber(CoordinatorEntity[IrrigationCaddyCoordinator], NumberEntity):
-    """Shared plumbing for the minute-valued duration boxes."""
+    """Shared plumbing for the minute-valued duration sliders."""
 
     _attr_has_entity_name = True
-    _attr_mode = NumberMode.BOX
-    _attr_native_min_value = 1
+    _attr_mode = NumberMode.SLIDER
+    _attr_native_min_value = RUN_NOW_MIN_DURATION
     _attr_native_step = 1
     _attr_native_unit_of_measurement = UnitOfTime.MINUTES
 
     @property
+    def _max_run(self) -> int:
+        """Slider ceiling: 30 minutes, or the firmware's maxZRunTime if lower."""
+        data = self.coordinator.data
+        return run_now_max(data.max_zone_run_time if data else None)
+
+    @property
     def native_max_value(self) -> float:
-        """Cap at the firmware's maxZRunTime — longer runs are refused anyway."""
-        if self.coordinator.data:
-            return float(self.coordinator.data.max_zone_run_time)
-        return 40.0
+        return float(self._max_run)
 
 
 class IrrigationCaddyDefaultDurationNumber(_DurationNumber):
@@ -63,7 +67,7 @@ class IrrigationCaddyDefaultDurationNumber(_DurationNumber):
 
     @property
     def native_value(self) -> float:
-        return float(default_duration(self._entry))
+        return float(default_duration(self._entry, self._max_run))
 
     async def async_set_native_value(self, value: float) -> None:
         self.hass.config_entries.async_update_entry(
@@ -96,8 +100,7 @@ class IrrigationCaddyZoneDurationNumber(_DurationNumber):
 
     @property
     def native_value(self) -> float:
-        max_run = self.coordinator.data.max_zone_run_time if self.coordinator.data else None
-        return float(zone_duration(self._entry, self._zone, max_run))
+        return float(zone_duration(self._entry, self._zone, self._max_run))
 
     async def async_set_native_value(self, value: float) -> None:
         self.hass.config_entries.async_update_entry(

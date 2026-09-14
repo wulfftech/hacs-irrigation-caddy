@@ -23,22 +23,39 @@
       "init": {
         "title": "Irrigation Caddy Options",
         "menu_options": {
-          "manual_run": "Manual run defaults",
+          "zones": "Zones",
+          "run_now": "Run Now",
           "program_1": "Edit Program 1",
           "program_2": "Edit Program 2",
           "program_3": "Edit Program 3"
         }
       },
-      "manual_run": {
-        "title": "Manual run defaults",
-        "description": "The fallback run time for any zone that has no run time of its own. Per-zone run times are set on the Run Now device.",
+      "zones": {
+        "title": "Zones",
+        "description": "Choose which of the controller's outputs appear in Home Assistant. A zone that is not selected gets no Run Now switch, no duration slider and no field in the program editors — use this to hide outputs that nothing is wired to. Saving a changed selection reloads the integration.",
         "data": {
-          "zone_duration": "Default zone run duration (minutes)"
+          "enabled_zones": "Zones to show"
+        }
+      },
+      "run_now": {
+        "title": "Run Now",
+        "description": "How long each zone waters when you switch it on from the Run Now device. The default is used by any zone that has not been given a time of its own. Capped at {max_run} minutes.\n\nZones — {zones}",
+        "data": {
+          "zone_duration": "Default run duration",
+          "zone_1": "Zone 1 run time",
+          "zone_2": "Zone 2 run time",
+          "zone_3": "Zone 3 run time",
+          "zone_4": "Zone 4 run time",
+          "zone_5": "Zone 5 run time",
+          "zone_6": "Zone 6 run time",
+          "zone_7": "Zone 7 run time",
+          "zone_8": "Zone 8 run time",
+          "zone_9": "Zone 9 run time"
         }
       },
       "program_1": {
         "title": "Program 1",
-        "description": "Edit program {program} on the controller. Leave a start time blank to clear that slot; set a zone to 0 to skip it. Zone run times are capped at {max_run} minutes.\n\nZones — {zones}",
+        "description": "Edit program {program} on the controller. Leave a start time blank to clear that slot; set a zone to 0 to skip it. Zone run times are capped at {max_run} minutes. Only the zones selected under Zones are shown — the rest keep whatever the controller already has.\n\nZones — {zones}",
         "data": {
           "enabled": "Program enabled",
           "days": "Days to run",
@@ -60,7 +77,7 @@
       },
       "program_2": {
         "title": "Program 2",
-        "description": "Edit program {program} on the controller. Leave a start time blank to clear that slot; set a zone to 0 to skip it. Zone run times are capped at {max_run} minutes.\n\nZones — {zones}",
+        "description": "Edit program {program} on the controller. Leave a start time blank to clear that slot; set a zone to 0 to skip it. Zone run times are capped at {max_run} minutes. Only the zones selected under Zones are shown — the rest keep whatever the controller already has.\n\nZones — {zones}",
         "data": {
           "enabled": "Program enabled",
           "days": "Days to run",
@@ -82,7 +99,7 @@
       },
       "program_3": {
         "title": "Program 3",
-        "description": "Edit program {program} on the controller. Leave a start time blank to clear that slot; set a zone to 0 to skip it. Zone run times are capped at {max_run} minutes.\n\nZones — {zones}",
+        "description": "Edit program {program} on the controller. Leave a start time blank to clear that slot; set a zone to 0 to skip it. Zone run times are capped at {max_run} minutes. Only the zones selected under Zones are shown — the rest keep whatever the controller already has.\n\nZones — {zones}",
         "data": {
           "enabled": "Program enabled",
           "days": "Days to run",
@@ -104,7 +121,8 @@
       }
     },
     "error": {
-      "save_failed": "The controller rejected the schedule. Check that it is reachable and try again."
+      "save_failed": "The controller rejected the schedule. Check that it is reachable and try again.",
+      "no_zones_selected": "Select at least one zone — hiding every zone would leave nothing to run."
     },
     "abort": {
       "no_device_data": "No schedule data has been read from the controller yet. Wait for it to come online and try again."

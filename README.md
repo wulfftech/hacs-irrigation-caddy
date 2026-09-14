@@ -9,7 +9,10 @@ A Home Assistant custom integration for the **KGControls Irrigation Caddy S1** (
 - **Zone switches** — one per zone on a **Run Now** device, mirroring the controller's own
   Run Now page. Turn one on to water that zone; it stays on for the whole run and turning
   it off stops it, without disabling the controller
-- **Per-zone run durations** — a minutes box per zone, plus a default for zones you haven't set
+- **Zone selection** — the controller always reports nine outputs; pick the ones that are
+  actually wired up and the rest get no entities at all
+- **Per-zone run durations** — a 1–30 minute slider per zone, plus a default for zones you
+  haven't set
 - **Schedule editor** — edit each program's days, start times and per-zone run times from the
   integration's **Configure** dialog
 - **Program buttons** — momentary "run program now" pushbuttons for each of the 3 programs
@@ -52,8 +55,16 @@ Copy `custom_components/irrigation_caddy/` into your HA `custom_components/` dir
 
 Click **Configure** on the integration card. You get a menu:
 
-- **Manual run defaults** — the fallback run time for any zone that has no run time of its own
+- **Zones** — which of the controller's nine outputs appear in Home Assistant
+- **Run Now** — the run time for each selected zone, plus the fallback used by any zone
+  that hasn't been given one. Sliders, 1–30 minutes (or the controller's `maxZRunTime`
+  if that is lower)
 - **Edit Program 1 / 2 / 3** — the full schedule editor (see below)
+
+Zones you don't select get no switch, no duration slider, and no field in the program
+editors — so to add a zone to a program, select it under **Zones** first. Deselecting a
+zone never rewrites a saved schedule: the controller keeps whatever duration it already
+had for that zone.
 
 ## Entities Created
 
@@ -61,8 +72,8 @@ For a controller named "Irrigation Caddy (icaddy.local)":
 
 | Entity | Type | Description |
 |---|---|---|
-| `switch.run_now_<zone name>` × 9 | Switch | Run that zone now; on while it waters, off to stop it |
-| `number.run_now_<zone name>_duration` × 9 | Number | How long that zone runs when switched on |
+| `switch.run_now_<zone name>` | Switch | One per selected zone. Run that zone now; on while it waters, off to stop it |
+| `number.run_now_<zone name>_duration` | Number | One per selected zone. How long it runs when switched on (1–30 min slider) |
 | `number.run_now_default_run_duration` | Number | Fallback duration for zones with no duration of their own |
 | `button.run_program_N_now` × 3 | Button | Trigger that program's schedule immediately |
 | `button.stop_watering` | Button | Stop the active zone (system stays enabled) |
@@ -78,6 +89,14 @@ For a controller named "Irrigation Caddy (icaddy.local)":
 | `binary_sensor.system_enabled` | Binary Sensor | True when controller is enabled |
 | `binary_sensor.rain_sensor_*` | Binary Sensor | Rain sensor wet/enabled state |
 
+> **Upgrading to v1.5.0.** On first load the integration picks which zones to show:
+> any zone watered by a program, plus any zone you've renamed on the controller. Zones
+> still carrying the firmware's placeholder name (`Zone 6`, `Zone 7`…) and used by no
+> program are hidden, and their switches and duration entities are removed from the
+> registry. Change the selection under **Configure → Zones** at any time — saving reloads
+> the integration. Run Now durations are now 1–30 minute sliders; a longer value set
+> previously is clamped to 30.
+>
 > **Upgrading to v1.4.0.** The "Zones" device is now called **Run Now**, matching the
 > controller's own web UI. The `button.run_zone_N_now` buttons are gone — use the zone
 > switches instead, and update any automation that pressed one. The old
@@ -101,8 +120,9 @@ The form is pre-filled from the device and shows:
 - **Program enabled** — arm or disarm the whole program
 - **Days to run** — checkboxes, Monday through Sunday
 - **Start time 1–5** — leave a slot blank to clear it
-- **Zone 1–9 run time** — minutes, 0 to skip that zone; capped at the controller's
-  own zone limit (`maxZRunTime`, 40 minutes by default)
+- **Zone run time** — one box per selected zone; minutes, 0 to skip that zone. Capped at
+  the controller's own zone limit (`maxZRunTime`, 40 minutes by default) — schedules are
+  not held to the 30-minute Run Now slider limit
 
 Submitting sends the whole schedule as one POST, which is exactly how the controller's
 own web form behaves — so a partial edit can't leave it in a half-saved state.

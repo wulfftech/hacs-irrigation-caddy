@@ -8,10 +8,12 @@ from homeassistant.const import CONF_HOST, CONF_PORT, Platform
 from homeassistant.core import HomeAssistant, ServiceCall
 from homeassistant.exceptions import ConfigEntryNotReady, HomeAssistantError
 from homeassistant.helpers import config_validation as cv
+from homeassistant.helpers import entity_registry as er
 import voluptuous as vol
 
-from .const import DEFAULT_PORT, DOMAIN, MAX_PROGRAMS
+from .const import CONF_ENABLED_ZONES, DEFAULT_PORT, DOMAIN, MAX_PROGRAMS, MAX_ZONES
 from .coordinator import IrrigationCaddyCoordinator
+from .options import derive_enabled_zones, enabled_zones
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -67,10 +69,53 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     hass.data.setdefault(DOMAIN, {})[entry.entry_id] = coordinator
 
+    max_zones = coordinator.data.max_zones if coordinator.data else MAX_ZONES
+
+    # First run (including the first load after upgrading): pick the zones that
+    # look wired up so the Run Now device isn't padded out with the controller's
+    # unused outputs. Seeded into options rather than derived on every load, so
+    # the selection stays put once the user has seen it.
+    if CONF_ENABLED_ZONES not in entry.options:
+        hass.config_entries.async_update_entry(
+            entry,
+            options={
+                **entry.options,
+                CONF_ENABLED_ZONES: derive_enabled_zones(coordinator.data),
+            },
+        )
+
+    coordinator.enabled_zones = enabled_zones(entry, max_zones)
+    _purge_hidden_zone_entities(hass, entry, coordinator.enabled_zones)
+
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
     entry.async_on_unload(entry.add_update_listener(_async_update_listener))
 
     return True
+
+
+def _purge_hidden_zone_entities(
+    hass: HomeAssistant, entry: ConfigEntry, zones: list[int]
+) -> None:
+    """Forget registry entries for zones that are no longer shown.
+
+    Entities are only created for selected zones, so without this a zone that
+    gets switched off would linger as an unavailable "restored" entity rather
+    than disappearing. Turning the zone back on recreates it — the unique ids
+    are stable.
+    """
+    stale = {
+        unique_id
+        for zone in range(1, MAX_ZONES + 1)
+        if zone not in zones
+        for unique_id in (
+            f"{entry.entry_id}_zone_{zone}_switch",
+            f"{entry.entry_id}_zone_{zone}_duration",
+        )
+    }
+    registry = er.async_get(hass)
+    for registered in er.async_entries_for_config_entry(registry, entry.entry_id):
+        if registered.unique_id in stale:
+            registry.async_remove(registered.entity_id)
 
 
 def _parse_start_time(value) -> tuple[int, int]:
@@ -164,12 +209,18 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
 
 async def _async_update_listener(hass: HomeAssistant, entry: ConfigEntry) -> None:
-    """React to an options change without reloading the entry.
+    """React to an options change, reloading only when it changes the entities.
 
-    The only option is the manual zone run duration, and every entity that
-    uses it reads entry.options directly — so a state push is enough. Reloading
-    would drop and recreate every entity, briefly flashing them unavailable
-    each time the duration is nudged.
+    Durations are read straight from entry.options by the entities that use
+    them, so a state push is enough — reloading would flash every entity
+    unavailable each time a slider is nudged. Which zones exist is decided when
+    the platforms are set up, so that one does need a reload.
     """
     coordinator: IrrigationCaddyCoordinator = hass.data[DOMAIN][entry.entry_id]
+    max_zones = coordinator.data.max_zones if coordinator.data else MAX_ZONES
+
+    if set(enabled_zones(entry, max_zones)) != set(coordinator.enabled_zones):
+        await hass.config_entries.async_reload(entry.entry_id)
+        return
+
     coordinator.async_update_listeners()
